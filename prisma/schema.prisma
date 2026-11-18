@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  DISMISSED
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model User {
+  id                     String                 @id @default(cuid())
+  username               String                 @unique
+  passwordHash           String
+  avatarUrl              String?
+  bio                    String                 @default("")
+  isAdmin                Boolean                @default(false)
+  isBanned               Boolean                @default(false)
+  sessionVersion         Int                    @default(0)
+  twoFactorEnabled       Boolean                @default(false)
+  twoFactorSecret        String?
+  createdAt              DateTime               @default(now())
+  lastSeenAt             DateTime?
+  memberships            ConversationMember[]
+  sentMessages           Message[]              @relation("SentMessages")
+  blocksMade             Block[]                @relation("BlocksMade")
+  blocksReceived         Block[]                @relation("BlocksReceived")
+  reportsMade            Report[]               @relation("ReportsMade")
+  reportsAgainst         Report[]               @relation("ReportsAgainst")
+  passwordResetRequests  PasswordResetRequest[]
+  createdConversations   Conversation[]         @relation("ConversationCreator")
+  sentFriendRequests     FriendRequest[]        @relation("FriendRequestSender")
+  receivedFriendRequests FriendRequest[]        @relation("FriendRequestRecipient")
+  friendPairsLow         FriendRequest[]        @relation("FriendPairLow")
+  friendPairsHigh        FriendRequest[]        @relation("FriendPairHigh")
+}
+
+model Conversation {
+  id        String               @id @default(cuid())
+  type      ConversationType
+  title     String?
+  createdBy String?
+  isPublic  Boolean              @default(false)
+  publicKey String?              @unique
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  creator   User?                @relation("ConversationCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  members   ConversationMember[]
+  messages  Message[]
+
+  @@index([updatedAt])
+}
+
+model ConversationMember {
+  id             String       @id @default(cuid())
+  conversationId String
+  userId         String
+  role           String       @default("MEMBER")
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String        @default("")
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime      @default(now())
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User          @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  reads          MessageRead[]
+
+  @@index([conversationId, createdAt])
+}
+
+model MessageRead {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("BlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+}
+
+model Report {
+  id             String       @id @default(cuid())
+  reporterId     String
+  reportedUserId String
+  messageId      String?
+  reason         String
+  status         ReportStatus @default(OPEN)
+  createdAt      DateTime     @default(now())
+  reporter       User         @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUser   User         @relation("ReportsAgainst", fields: [reportedUserId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model PasswordResetRequest {
+  id         String    @id @default(cuid())
+  username   String
+  userId     String?
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([resolvedAt, createdAt])
+}
+
+model FriendRequest {
+  id          String              @id @default(cuid())
+  requesterId String
+  recipientId String
+  lowUserId   String
+  highUserId  String
+  status      FriendRequestStatus @default(PENDING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  requester   User                @relation("FriendRequestSender", fields: [requesterId], references: [id], onDelete: Cascade)
+  recipient   User                @relation("FriendRequestRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  lowUser     User                @relation("FriendPairLow", fields: [lowUserId], references: [id], onDelete: Cascade)
+  highUser    User                @relation("FriendPairHigh", fields: [highUserId], references: [id], onDelete: Cascade)
+
+  @@unique([lowUserId, highUserId])
+  @@index([recipientId, status, createdAt])
+  @@index([requesterId, status, createdAt])
+}
